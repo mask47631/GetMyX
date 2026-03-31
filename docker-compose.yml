@@ -1,0 +1,79 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: getmyx-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-admin}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - getmyx-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: getmyx-app
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      # Twitter/X 配置
+      TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN}
+
+      # 代理配置
+      PROXY_URI: ${PROXY_URI:-}
+
+      # MongoDB 配置
+      MONGODB_URI: mongodb://${MONGODB_USERNAME:-admin}:${MONGODB_PASSWORD:-admin}@mongodb:27017
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-getmyx}
+      MONGODB_COLLECTION: ${MONGODB_COLLECTION:-items}
+      MEDIA_COLLECTION_NAME: ${MEDIA_COLLECTION_NAME:-media}
+
+      # 媒体文件配置
+      MEDIA_DOWNLOAD_DIR: ${MEDIA_DOWNLOAD_DIR:-/app/downloads}
+      MEDIA_THUMBNAIL_DIR: ${MEDIA_THUMBNAIL_DIR:-/app/thumbnails}
+      MEDIA_THUMBNAIL_WIDTH: ${MEDIA_THUMBNAIL_WIDTH:-720}
+
+      # 过滤关键词
+      FILTER_KEYWORDS: ${FILTER_KEYWORDS:-}
+
+      # 定时任务配置
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-*/30 * * * *}
+
+      # Matrix Bot 配置
+      MATRIX_HOMESERVER: ${MATRIX_HOMESERVER:-}
+      MATRIX_USER_ID: ${MATRIX_USER_ID:-}
+      MATRIX_ACCESS_TOKEN: ${MATRIX_ACCESS_TOKEN:-}
+      MATRIX_ROOM_ID: ${MATRIX_ROOM_ID:-}
+    volumes:
+      - ./downloads:/app/downloads
+      - ./thumbnails:/app/thumbnails
+      - ./logs:/app/logs
+      - ./.matrix-storage.json:/app/.matrix-storage.json
+    networks:
+      - getmyx-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  mongodb_data:
+    name: getmyx-mongodb-data
+
+networks:
+  getmyx-network:
+    name: getmyx-network
+    driver: bridge
