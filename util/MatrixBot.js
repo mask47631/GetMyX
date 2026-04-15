@@ -15,6 +15,9 @@ const matrixConfig = {
     userId: process.env.MATRIX_USER_ID || '',
     accessToken: process.env.MATRIX_ACCESS_TOKEN || '',
     roomId: process.env.MATRIX_ROOM_ID || '',
+    // 媒体类型分流配置（可选）
+    imageRoomId: process.env.MATRIX_IMAGE_ROOM_ID || '',       // 图片专用房间
+    videoRoomId: process.env.MATRIX_VIDEO_ROOM_ID || '',       // 视频专用房间
     // 大文件配置（可选）
     largeFileRoomId: process.env.MATRIX_LARGE_FILE_ROOM_ID || '',
     largeFileThresholdMB: parseInt(process.env.MATRIX_LARGE_FILE_THRESHOLD_MB) || 0,  // 单位: MB, 0 表示不限制
@@ -247,7 +250,7 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
 
 /**
  * 使用默认配置的 roomId 发送媒体
- * 根据文件大小自动选择发送到普通房间或大文件房间
+ * 根据媒体类型（图片/视频）自动选择对应房间，再根据文件大小判断是否发送到大文件房间
  * @param {Object} mediaInfo - 媒体信息对象
  * @param {string} caption - 媒体说明文字（可选）
  * @returns {Promise<string>} 事件 ID
@@ -263,16 +266,27 @@ export async function sendMediaDefault(mediaInfo, caption = '') {
         fileSize = fs.statSync(mediaInfo.filePath).size;
     }
 
-    // 判断是否需要发送到的大文件房间
+    // 1. 根据媒体类型选择分流房间
     let targetRoomId = matrixConfig.roomId;
+    const mimeType = getMimeType(mediaInfo.filePath || '');
+    
+    if (mimeType.startsWith('image/') && matrixConfig.imageRoomId) {
+        targetRoomId = matrixConfig.imageRoomId;
+        console.log(`[分流] 图片 -> 图片专用房间: ${targetRoomId}`);
+    } else if (mimeType.startsWith('video/') && matrixConfig.videoRoomId) {
+        targetRoomId = matrixConfig.videoRoomId;
+        console.log(`[分流] 视频 -> 视频专用房间: ${targetRoomId}`);
+    }
+
+    // 2. 判断是否需要发送到大文件房间（优先级高于类型分流）
     const thresholdMB = matrixConfig.largeFileThresholdMB;
     const thresholdBytes = thresholdMB * 1024 * 1024;
 
-    // 如果配置了大文件阈值、目标房间，且文件大小超过阈值
     if (thresholdMB > 0 && matrixConfig.largeFileRoomId && fileSize > thresholdBytes) {
+        const oldRoom = targetRoomId;
         targetRoomId = matrixConfig.largeFileRoomId;
         const sizeStr = formatFileSize(fileSize);
-        console.log(`文件大小 ${sizeStr} 超过阈值 ${thresholdMB}MB，发送到大型文件房间: ${targetRoomId}`);
+        console.log(`[大文件] 文件大小 ${sizeStr} 超过阈值 ${thresholdMB}MB，发送到大文件房间: ${targetRoomId}`);
     }
 
     return await sendMedia(targetRoomId, mediaInfo, caption);

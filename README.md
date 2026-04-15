@@ -85,6 +85,10 @@ node index.js
 | `MATRIX_USER_ID` | Matrix 用户 ID | - |
 | `MATRIX_ACCESS_TOKEN` | Matrix 访问令牌 | - |
 | `MATRIX_ROOM_ID` | Matrix 房间 ID | - |
+| `MATRIX_IMAGE_ROOM_ID` | 图片专用房间 ID（可选） | - |
+| `MATRIX_VIDEO_ROOM_ID` | 视频专用房间 ID（可选） | - |
+| `MATRIX_LARGE_FILE_ROOM_ID` | 大文件专用房间 ID（可选） | - |
+| `MATRIX_LARGE_FILE_THRESHOLD_MB` | 大文件阈值（MB） | `50` |
 
 ### 获取 Twitter 认证令牌
 
@@ -103,6 +107,30 @@ node index.js
 3. 在房间中发送 `get-room-id` 消令获取房间 ID
 4. 在 Matrix 设置中获取访问令牌
 5. 将以上信息填入 `.env` 文件
+
+#### 媒体类型分流（可选）
+
+支持将图片和视频发送到不同的房间：
+
+- **默认行为**：所有媒体发送到 `MATRIX_ROOM_ID` 指定的房间
+- **图片分流**：配置 `MATRIX_IMAGE_ROOM_ID` 后，图片发送到该房间
+- **视频分流**：配置 `MATRIX_VIDEO_ROOM_ID` 后，视频发送到该房间
+- **大文件分流**：配置 `MATRIX_LARGE_FILE_ROOM_ID` 和阈值后，超过阈值的文件发送到大文件房间（优先级最高）
+
+示例配置：
+
+```env
+# 默认房间（未匹配分流规则的媒体）
+MATRIX_ROOM_ID=!default_room:matrix.org
+
+# 媒体类型分流
+MATRIX_IMAGE_ROOM_ID=!image_room:matrix.org      # 图片专用房间
+MATRIX_VIDEO_ROOM_ID=!video_room:matrix.org      # 视频专用房间
+
+# 大文件分流（优先级高于类型分流）
+MATRIX_LARGE_FILE_ROOM_ID=!large_file:matrix.org # 大文件房间
+MATRIX_LARGE_FILE_THRESHOLD_MB=50                # 50MB 以上为大文件
+```
 
 ## Docker 部署
 

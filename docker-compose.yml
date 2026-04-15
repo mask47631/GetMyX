@@ -56,6 +56,12 @@ services:
       MATRIX_USER_ID: ${MATRIX_USER_ID:-}
       MATRIX_ACCESS_TOKEN: ${MATRIX_ACCESS_TOKEN:-}
       MATRIX_ROOM_ID: ${MATRIX_ROOM_ID:-}
+      # 媒体类型分流房间（可选）
+      MATRIX_IMAGE_ROOM_ID: ${MATRIX_IMAGE_ROOM_ID:-}
+      MATRIX_VIDEO_ROOM_ID: ${MATRIX_VIDEO_ROOM_ID:-}
+      # 大文件分流房间（可选）
+      MATRIX_LARGE_FILE_ROOM_ID: ${MATRIX_LARGE_FILE_ROOM_ID:-}
+      MATRIX_LARGE_FILE_THRESHOLD_MB: ${MATRIX_LARGE_FILE_THRESHOLD_MB:-0}
     volumes:
       - ./downloads:/app/downloads
       - ./thumbnails:/app/thumbnails
