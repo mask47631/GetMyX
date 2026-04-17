@@ -89,6 +89,7 @@ node index.js
 | `MATRIX_VIDEO_ROOM_ID` | 视频专用房间 ID（可选） | - |
 | `MATRIX_LARGE_FILE_ROOM_ID` | 大文件专用房间 ID（可选） | - |
 | `MATRIX_LARGE_FILE_THRESHOLD_MB` | 大文件阈值（MB） | `50` |
+| `MATRIX_AUTO_DELETE_ON_SUCCESS` | 发送成功后自动删除本地文件 | `false` |
 
 ### 获取 Twitter 认证令牌
 
@@ -130,6 +131,9 @@ MATRIX_VIDEO_ROOM_ID=!video_room:matrix.org      # 视频专用房间
 # 大文件分流（优先级高于类型分流）
 MATRIX_LARGE_FILE_ROOM_ID=!large_file:matrix.org # 大文件房间
 MATRIX_LARGE_FILE_THRESHOLD_MB=50                # 50MB 以上为大文件
+
+# 发送成功后自动删除本地文件（节省磁盘空间）
+MATRIX_AUTO_DELETE_ON_SUCCESS=true
 ```
 
 ## Docker 部署

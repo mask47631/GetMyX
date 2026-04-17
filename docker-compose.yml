@@ -62,6 +62,8 @@ services:
       # 大文件分流房间（可选）
       MATRIX_LARGE_FILE_ROOM_ID: ${MATRIX_LARGE_FILE_ROOM_ID:-}
       MATRIX_LARGE_FILE_THRESHOLD_MB: ${MATRIX_LARGE_FILE_THRESHOLD_MB:-0}
+      # 发送成功后自动删除本地文件（可选）
+      MATRIX_AUTO_DELETE_ON_SUCCESS: ${MATRIX_AUTO_DELETE_ON_SUCCESS:-false}
     volumes:
       - ./downloads:/app/downloads
       - ./thumbnails:/app/thumbnails

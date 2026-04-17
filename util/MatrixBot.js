@@ -22,7 +22,9 @@ const matrixConfig = {
     largeFileRoomId: process.env.MATRIX_LARGE_FILE_ROOM_ID || '',
     largeFileThresholdMB: parseInt(process.env.MATRIX_LARGE_FILE_THRESHOLD_MB) || 0,  // 单位: MB, 0 表示不限制
     // 发送间隔（毫秒）
-    sendIntervalMs: parseInt(process.env.MATRIX_SEND_INTERVAL_MS) || 1000
+    sendIntervalMs: parseInt(process.env.MATRIX_SEND_INTERVAL_MS) || 1000,
+    // 发送成功后是否自动删除本地文件
+    autoDeleteOnSuccess: process.env.MATRIX_AUTO_DELETE_ON_SUCCESS === 'true'
 };
 
 let client = null;
@@ -241,6 +243,11 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
             console.log(`已发送视频信息: ${infoText}`);
         }
 
+        // 发送成功后，自动删除本地文件和缩略图（如果启用）
+        if (matrixConfig.autoDeleteOnSuccess) {
+            await deleteLocalFiles(mediaInfo.filePath, mediaInfo.thumbnailPath);
+        }
+
         return eventId;
     } catch (error) {
         console.error('发送媒体失败:', error);
@@ -378,6 +385,33 @@ function formatDuration(seconds) {
         return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
     }
     return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+/**
+ * 删除本地媒体文件和缩略图
+ * @param {string} filePath - 媒体文件路径
+ * @param {string} thumbnailPath - 缩略图路径（可选）
+ */
+async function deleteLocalFiles(filePath, thumbnailPath) {
+    // 删除媒体文件
+    if (filePath && fs.existsSync(filePath)) {
+        try {
+            fs.unlinkSync(filePath);
+            console.log(`[清理] 已删除媒体文件: ${path.basename(filePath)}`);
+        } catch (err) {
+            console.error(`[清理] 删除媒体文件失败: ${filePath}`, err.message);
+        }
+    }
+
+    // 删除缩略图
+    if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+        try {
+            fs.unlinkSync(thumbnailPath);
+            console.log(`[清理] 已删除缩略图: ${path.basename(thumbnailPath)}`);
+        } catch (err) {
+            console.error(`[清理] 删除缩略图失败: ${thumbnailPath}`, err.message);
+        }
+    }
 }
 
 /**
