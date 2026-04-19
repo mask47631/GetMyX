@@ -251,6 +251,9 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
         return eventId;
     } catch (error) {
         console.error('发送媒体失败:', error);
+        if (matrixConfig.autoDeleteOnSuccess) {
+            await deleteLocalFiles(mediaInfo.filePath, mediaInfo.thumbnailPath);
+        }
         throw error;
     }
 }
