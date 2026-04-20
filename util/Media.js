@@ -22,8 +22,49 @@ let mediaConfig = {
     downloadDir: process.env.MEDIA_DOWNLOAD_DIR || './downloads',
     thumbnailDir: process.env.MEDIA_THUMBNAIL_DIR || './thumbnails',
     thumbnailWidth: process.env.MEDIA_THUMBNAIL_WIDTH || 720,
-    proxy: process.env.PROXY_URI || null
+    proxy: process.env.PROXY_URI || null,
+    // 低内存模式配置（默认开启）
+    lowMemoryMode: process.env.MEDIA_LOW_MEMORY_MODE !== 'false',  // 默认启用
+    maxConcurrentDownloads: parseInt(process.env.MEDIA_MAX_CONCURRENT_DOWNLOADS) || 1  // 并发下载数限制
 };
+
+// 下载并发控制信号量
+let downloadSemaphore = null;
+
+function getDownloadSemaphore() {
+    if (!downloadSemaphore) {
+        downloadSemaphore = createSemaphore(mediaConfig.maxConcurrentDownloads);
+    }
+    return downloadSemaphore;
+}
+
+/**
+ * 简单的信号量实现，用于控制并发数
+ */
+function createSemaphore(maxConcurrency) {
+    let current = 0;
+    const queue = [];
+    
+    return function acquire() {
+        return new Promise(resolve => {
+            if (current < maxConcurrency) {
+                current++;
+                resolve(release);
+            } else {
+                queue.push(resolve);
+            }
+        });
+        
+        function release() {
+            current--;
+            if (queue.length > 0 && current < maxConcurrency) {
+                current++;
+                const next = queue.shift();
+                next(release);
+            }
+        }
+    };
+}
 
 /**
  * MongoDB 集合引用
@@ -75,6 +116,22 @@ export function getMediaConfig() {
 }
 
 /**
+ * 流式计算文件哈希值（避免大文件整文件载入内存）
+ * @param {string} filePath - 文件路径
+ * @returns {Promise<string>} SHA256 哈希值
+ */
+function calculateFileHashStream(filePath) {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha256');
+        const stream = fs.createReadStream(filePath);
+        
+        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+    });
+}
+
+/**
  * 从 Content-Type 获取文件扩展名
  * @param {string} contentType - Content-Type 头
  * @returns {string} 文件扩展名（带点）
@@ -101,13 +158,17 @@ function getExtensionFromContentType(contentType) {
 }
 
 /**
- * 通过 URL 下载视频或图片
+ * 通过 URL 下载视频或图片（流式写入磁盘，避免大文件爆内存）
  *
  * @param {string} url - 资源 URL
  * @param {string} type - 媒体类型: 'image' 或 'video'
  * @returns {Promise<string>} 下载后的文件路径
  */
 export async function downloadMedia(url, type = null) {
+    // 低内存模式下限制并发
+    const semaphore = getDownloadSemaphore();
+    const release = await semaphore;
+    
     try {
         // 使用 undici 的请求选项
         const dispatcher = mediaConfig.proxy
@@ -126,8 +187,6 @@ export async function downloadMedia(url, type = null) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         });
-
-        // const response = await fetch(url,{redirect:'follow'})
 
         // 检查响应状态
         if (response.statusCode !== 200) {
@@ -174,24 +233,47 @@ export async function downloadMedia(url, type = null) {
             fs.mkdirSync(dir, { recursive: true });
         }
 
-        // 获取文件内容
-        const buffer = await response.body.arrayBuffer();
+        // 流式写入文件，避免整个文件进入内存
+        const writeStream = fs.createWriteStream(outputPath);
+        
+        await new Promise((resolve, reject) => {
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+            
+            // 使用 Node.js Readable.from 或手动管道
+            const reader = response.body.getReader();
+            
+            function pump() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        writeStream.end();
+                        return;
+                    }
+                    writeStream.write(value, pump);
+                }).catch(err => {
+                    writeStream.destroy(err);
+                    reject(err);
+                });
+            }
+            pump();
+        });
 
-        // 检查是否获取到数据
-        if (!buffer || buffer.byteLength === 0) {
+        // 检查文件大小
+        const stats = fs.statSync(outputPath);
+        console.log(`文件大小: ${stats.size} 字节`);
+        
+        if (stats.size === 0) {
             throw new Error('下载的文件内容为空');
         }
-
-        console.log(`文件大小: ${buffer.byteLength} 字节`);
-
-        // 写入文件
-        fs.writeFileSync(outputPath, Buffer.from(buffer));
 
         console.log(`下载完成: ${outputPath}`);
         return outputPath;
     } catch (error) {
         console.error('下载媒体失败:', error);
         throw error;
+    } finally {
+        // 释放信号量
+        release();
     }
 }
 
@@ -278,9 +360,8 @@ export async function getMediaInfo(inputPath) {
         const height = videoStream ? videoStream.height : null;
         const duration = probeData.format ? parseFloat(probeData.format.duration) : 0;
 
-        // 4. 计算文件哈希值
-        const fileBuffer = fs.readFileSync(inputPath);
-        const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        // 4. 流式计算文件哈希值（避免大文件整文件载入内存）
+        const hash = await calculateFileHashStream(inputPath);
 
         // 5. 检查是否重复
         const isDuplicate = await checkMediaExists(hash, fileSize);

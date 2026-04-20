@@ -78,6 +78,8 @@ node index.js
 | `MEDIA_DOWNLOAD_DIR` | 下载目录 | `./downloads` |
 | `MEDIA_THUMBNAIL_DIR` | 缩略图目录 | `./thumbnails` |
 | `MEDIA_THUMBNAIL_WIDTH` | 缩略图宽度 | `720` |
+| `MEDIA_LOW_MEMORY_MODE` | 低内存模式（流式处理） | `true` |
+| `MEDIA_MAX_CONCURRENT_DOWNLOADS` | 并发下载数量 | `1` |
 | `FILTER_KEYWORDS` | 过滤关键词（逗号分隔） | `keyword1,keyword2` |
 | `CRON_SCHEDULE` | 定时任务 Cron 表达式 | `*/30 * * * *` |
 | `PROXY_URI` | 代理地址 | - |
@@ -242,6 +244,31 @@ CRON_SCHEDULE=0 9 * * 1
   - macOS: `brew install ffmpeg`
   - Ubuntu: `sudo apt install ffmpeg`
   - Docker: 已包含在镜像中
+
+### 内存不足 (OOM)
+
+如果服务器内存较小（如 1GB），处理大文件时可能触发 OOM：
+
+**解决方案（已默认启用）：**
+
+```env
+# 低内存模式（流式处理，避免整文件载入内存）
+MEDIA_LOW_MEMORY_MODE=true
+MEDIA_MAX_CONCURRENT_DOWNLOADS=1   # 降低并发数
+```
+
+**优化效果：**
+
+| 操作 | 优化前 | 优化后 |
+|------|--------|--------|
+| 下载 | 整文件读入 Buffer | 流式写入磁盘 |
+| 计算哈希 | readFileSync 全部载入 | createReadStream 分块读取 |
+| 上传 Matrix | readFileSync 全部载入 | createReadStream 流式上传 |
+| 并发控制 | 无限制 | 可配置并发数 |
+
+**其他建议：**
+- 启用 `MATRIX_AUTO_DELETE_ON_SUCCESS=true` 发送成功后立即删除本地文件
+- 增加交换空间：`sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`
 
 ## 许可证
 

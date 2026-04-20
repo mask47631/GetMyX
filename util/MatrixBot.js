@@ -192,7 +192,7 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
         if (mediaInfo.height) info.h = mediaInfo.height;
         if (mediaInfo.duration) info.duration = Math.round(mediaInfo.duration);
 
-        // 添加缩略图（如果有）
+        // 添加缩略图（如果有）- 缩略图较小，直接读取
         let thumbnailInfo = null;
         if (mediaInfo.thumbnailPath && fs.existsSync(mediaInfo.thumbnailPath)) {
             const thumbMimeType = getMimeType(mediaInfo.thumbnailPath);
@@ -206,9 +206,10 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
             if (mediaInfo.thumbnailHeight) thumbnailInfo.h = mediaInfo.thumbnailHeight;
         }
 
-        // 读取并上传媒体内容
-        const mediaData = fs.readFileSync(mediaInfo.filePath);
-        const mxcUrl = await client.uploadContent(mediaData, mimeType, fileName);
+        // 流式上传媒体内容（避免大文件整文件载入内存）
+        console.log(`[流式上传] 开始上传: ${fileName}`);
+        const mediaStream = fs.createReadStream(mediaInfo.filePath);
+        const mxcUrl = await client.uploadContent(mediaStream, mimeType, fileName);
 
         // 构建消息内容
         const content = {
@@ -250,6 +251,25 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
 
         return eventId;
     } catch (error) {
+        // 检查是否为限流错误 (M_LIMIT_EXCEEDED)
+        if (error?.errcode === 'M_LIMIT_EXCEEDED' || error?.message?.includes('Too Many Requests')) {
+            const retryDelayMs = 3 * 60 * 1000; // 3分钟
+            console.error(`[限流] Matrix API 限流，等待 ${retryDelayMs / 1000} 秒后重试...`);
+            
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            console.log('[限流] 重试发送...');
+            
+            try {
+                return await sendMedia(roomId, mediaInfo, caption);
+            } catch (retryError) {
+                console.error('重试后仍然失败:', retryError);
+                if (matrixConfig.autoDeleteOnSuccess) {
+                    await deleteLocalFiles(mediaInfo.filePath, mediaInfo.thumbnailPath);
+                }
+                throw retryError;
+            }
+        }
+        
         console.error('发送媒体失败:', error);
         if (matrixConfig.autoDeleteOnSuccess) {
             await deleteLocalFiles(mediaInfo.filePath, mediaInfo.thumbnailPath);
