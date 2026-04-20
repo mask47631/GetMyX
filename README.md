@@ -80,6 +80,7 @@ node index.js
 | `MEDIA_THUMBNAIL_WIDTH` | 缩略图宽度 | `720` |
 | `MEDIA_LOW_MEMORY_MODE` | 低内存模式（流式处理） | `true` |
 | `MEDIA_MAX_CONCURRENT_DOWNLOADS` | 并发下载数量 | `1` |
+| `MEDIA_MAX_FILE_SIZE_GB` | 文件大小限制（GB，超限丢弃） | `1` |
 | `FILTER_KEYWORDS` | 过滤关键词（逗号分隔） | `keyword1,keyword2` |
 | `CRON_SCHEDULE` | 定时任务 Cron 表达式 | `*/30 * * * *` |
 | `PROXY_URI` | 代理地址 | - |
@@ -268,7 +269,27 @@ MEDIA_MAX_CONCURRENT_DOWNLOADS=1   # 降低并发数
 
 **其他建议：**
 - 启用 `MATRIX_AUTO_DELETE_ON_SUCCESS=true` 发送成功后立即删除本地文件
+- 设置 `MEDIA_MAX_FILE_SIZE_GB=1` 丢弃超大文件，节省带宽和内存
 - 增加交换空间：`sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`
+
+### 文件大小限制
+
+可通过 `MEDIA_MAX_FILE_SIZE_GB` 配置媒体文件大小上限：
+
+```env
+# 超过 1GB 的文件直接丢弃（默认）
+MEDIA_MAX_FILE_SIZE_GB=1
+
+# 不限制文件大小
+MEDIA_MAX_FILE_SIZE_GB=0
+
+# 限制为 500MB
+MEDIA_MAX_FILE_SIZE_GB=0.5
+```
+
+**检查机制（双重保障）：**
+1. **预检阶段**：通过 HTTP 响应头的 `Content-Length` 判断，超限则直接中止连接，不下载任何数据
+2. **下载完成后**：再次检查实际文件大小，超限则删除已下载的文件
 
 ## 许可证
 

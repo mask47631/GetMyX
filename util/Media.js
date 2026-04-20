@@ -25,7 +25,9 @@ let mediaConfig = {
     proxy: process.env.PROXY_URI || null,
     // 低内存模式配置（默认开启）
     lowMemoryMode: process.env.MEDIA_LOW_MEMORY_MODE !== 'false',  // 默认启用
-    maxConcurrentDownloads: parseInt(process.env.MEDIA_MAX_CONCURRENT_DOWNLOADS) || 1  // 并发下载数限制
+    maxConcurrentDownloads: parseInt(process.env.MEDIA_MAX_CONCURRENT_DOWNLOADS) || 1,  // 并发下载数限制
+    // 文件大小限制（字节），超过此大小的文件直接丢弃，默认 1GB
+    maxFileSizeBytes: (parseFloat(process.env.MEDIA_MAX_FILE_SIZE_GB) || 1) * 1024 * 1024 * 1024
 };
 
 // 下载并发控制信号量
@@ -193,6 +195,16 @@ export async function downloadMedia(url, type = null) {
             throw new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`);
         }
 
+        // 检查文件大小限制（通过 Content-Length 预检）
+        const contentLength = parseInt(response.headers['content-length']) || 0;
+        const maxBytes = mediaConfig.maxFileSizeBytes;
+        if (contentLength > maxBytes) {
+            // 中止响应，不读取 body
+            response.body.destroy();
+            throw new Error(`文件过大: ${(contentLength / 1024 / 1024 / 1024).toFixed(2)}GB > ${maxBytes / 1024 / 1024 / 1024}GB 限制，已丢弃`);
+        }
+        console.log(`Content-Length: ${contentLength ? (contentLength / 1024 / 1024).toFixed(1) + 'MB' : '未知'} (上限: ${(maxBytes / 1024 / 1024 / 1024).toFixed(1)}GB)`);
+
         // 从 Content-Type 获取扩展名
         let ext = getExtensionFromContentType(response.headers['content-type']);
 
@@ -234,36 +246,57 @@ export async function downloadMedia(url, type = null) {
         }
 
         // 流式写入文件，避免整个文件进入内存
-        const writeStream = fs.createWriteStream(outputPath);
-        
         await new Promise((resolve, reject) => {
-            writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
+            const writeStream = fs.createWriteStream(outputPath);
             
-            // 使用 Node.js Readable.from 或手动管道
-            const reader = response.body.getReader();
+            writeStream.on('finish', () => {
+                console.log(`[流式] 文件写入完成`);
+                resolve();
+            });
+            writeStream.on('error', (err) => {
+                console.error(`[流式] 写入失败:`, err);
+                reject(err);
+            });
             
-            function pump() {
-                reader.read().then(({ done, value }) => {
-                    if (done) {
-                        writeStream.end();
-                        return;
-                    }
-                    writeStream.write(value, pump);
-                }).catch(err => {
-                    writeStream.destroy(err);
-                    reject(err);
-                });
-            }
-            pump();
+            // undici 的 response.body (BodyReadable) 本身就是 Node.js Stream，可直接 pipe
+            response.body.pipe(writeStream);
+            
+            response.body.on('error', (err) => {
+                console.error(`[流式] 读取响应失败:`, err);
+                writeStream.destroy(err);
+                reject(err);
+            });
         });
 
-        // 检查文件大小
+        // 检查文件大小并验证下载完整性
         const stats = fs.statSync(outputPath);
-        console.log(`文件大小: ${stats.size} 字节`);
+        console.log(`文件大小: ${stats.size} 字节 (${(stats.size / 1024).toFixed(1)} KB)`);
         
         if (stats.size === 0) {
+            fs.unlinkSync(outputPath);
             throw new Error('下载的文件内容为空');
+        }
+        
+        // 二次检查：下载完成后再次验证文件大小限制（Content-Length 可能不准确）
+        if (stats.size > maxBytes) {
+            fs.unlinkSync(outputPath);
+            throw new Error(`下载后文件过大: ${(stats.size / 1024 / 1024 / 1024).toFixed(2)}GB > ${maxBytes / 1024 / 1024 / 1024}GB，已删除`);
+        }
+        
+        // 检查是否为异常小的文件（可能是 HTTP 错误页面）
+        const MIN_FILE_SIZE = type === '视频' ? 10000 : 2000;  // 视频 >10KB, 图片 >2KB
+        if (stats.size < MIN_FILE_SIZE) {
+            // 读取前 500 字节判断是否为 HTML/JSON 错误响应
+            const fd = fs.openSync(outputPath, 'r');
+            const headBuf = Buffer.alloc(Math.min(stats.size, 500));
+            fs.readSync(fd, headBuf, 0, headBuf.length, 0);
+            fs.closeSync(fd);
+            const headStr = headBuf.toString('utf-8');
+            
+            if (headStr.startsWith('<') || headStr.startsWith('{')) {
+                fs.unlinkSync(outputPath);
+                throw new Error(`下载内容异常（${stats.size}字节），可能是HTTP错误响应: ${headStr.substring(0, 100)}`);
+            }
         }
 
         console.log(`下载完成: ${outputPath}`);

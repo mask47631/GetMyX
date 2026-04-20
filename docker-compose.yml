@@ -47,6 +47,8 @@ services:
       # 低内存模式（默认开启）
       MEDIA_LOW_MEMORY_MODE: ${MEDIA_LOW_MEMORY_MODE:-true}
       MEDIA_MAX_CONCURRENT_DOWNLOADS: ${MEDIA_MAX_CONCURRENT_DOWNLOADS:-1}
+      # 文件大小限制（GB，超过则丢弃，默认 1GB）
+      MEDIA_MAX_FILE_SIZE_GB: ${MEDIA_MAX_FILE_SIZE_GB:-1}
 
       # 过滤关键词
       FILTER_KEYWORDS: ${FILTER_KEYWORDS:-}

@@ -206,10 +206,23 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
             if (mediaInfo.thumbnailHeight) thumbnailInfo.h = mediaInfo.thumbnailHeight;
         }
 
-        // 流式上传媒体内容（避免大文件整文件载入内存）
-        console.log(`[流式上传] 开始上传: ${fileName}`);
-        const mediaStream = fs.createReadStream(mediaInfo.filePath);
-        const mxcUrl = await client.uploadContent(mediaStream, mimeType, fileName);
+        // 上传媒体内容到 Matrix
+        console.log(`[上传] 开始上传: ${fileName} (${info.size} bytes)`);
+        
+        // 上传前验证文件存在且大小正常
+        const uploadStats = fs.statSync(mediaInfo.filePath);
+        console.log(`[上传] 文件实际大小: ${uploadStats.size} bytes`);
+        
+        if (uploadStats.size !== info.size) {
+            console.warn(`[上传] 警告：缓存大小(${info.size})与实际大小(${uploadStats.size})不一致`);
+        }
+        
+        // 使用 Buffer 上传（matrix-bot-sdk 的 uploadContent 对 Node.js stream 支持有问题）
+        const mediaData = fs.readFileSync(mediaInfo.filePath);
+        const mxcUrl = await client.uploadContent(mediaData, mimeType, fileName);
+        // 立即释放 buffer 引用
+        mediaData.fill(0);  
+        console.log(`[上传] 上传完成，MXC URL: ${mxcUrl.substring(0, 30)}...`);
 
         // 构建消息内容
         const content = {
