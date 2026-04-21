@@ -251,7 +251,7 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
         }
         // console.log('content:', content);
 
-        // 发送消息
+        // 发送消息（核心操作，失败需要重试）
         let eventId;
         try {
             eventId = await client.sendMessage(roomId, content);
@@ -262,13 +262,31 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
         }
         console.log(`媒体发送成功: ${eventId}`);
 
-        // 如果是视频，发送视频时长和大小信息
+        // 如果是视频，发送视频时长和大小信息（辅助操作，失败不重试）
         if (content.msgtype === 'm.video') {
             const sizeInfo = formatFileSize(info.size);
             const durationInfo = info.duration ? `时长: ${formatDuration(info.duration)}` : '';
             const infoText = `📹 ${fileName}\n${durationInfo}${durationInfo && sizeInfo ? '大小: ' : ''}${sizeInfo}`;
-            await client.sendNotice(roomId, infoText);
-            console.log(`已发送视频信息: ${infoText}`);
+            
+            try {
+                await client.sendNotice(roomId, infoText);
+                console.log(`已发送视频信息: ${infoText}`);
+            } catch (noticeErr) {
+                // sendNotice 失败只记录警告，不触发重试，避免重复发送媒体
+                if (noticeErr?.errcode === 'M_LIMIT_EXCEEDED' || noticeErr?.message?.includes('Too Many Requests')) {
+                    const waitMs = noticeErr?.retryAfterMs || noticeErr?.retry_after_ms || 3000;
+                    console.warn(`[sendNotice] 视频信息发送被限流，等待 ${(waitMs / 1000).toFixed(1)}s 后重试...`);
+                    await new Promise(resolve => setTimeout(resolve, waitMs + 500));
+                    try {
+                        await client.sendNotice(roomId, infoText);
+                        console.log(`[sendNotice] 视频信息重试成功`);
+                    } catch (retryErr) {
+                        console.warn(`[sendNotice] 视频信息发送最终失败（已忽略）:`, retryErr.message);
+                    }
+                } else {
+                    console.warn(`[sendNotice] 视频信息发送失败（已忽略）:`, noticeErr.message);
+                }
+            }
         }
 
         // 发送成功后，自动删除本地文件和缩略图（如果启用）
