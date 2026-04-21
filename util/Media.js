@@ -199,7 +199,8 @@ export async function downloadMedia(url, type = null) {
         const contentLength = parseInt(response.headers['content-length']) || 0;
         const maxBytes = mediaConfig.maxFileSizeBytes;
         if (contentLength > maxBytes) {
-            // 中止响应，不读取 body
+            // 中止响应，不读取 body（需要先监听 error 事件避免 uncaughtException）
+            response.body.on('error', () => {});  // 忽略 abort 导致的错误
             response.body.destroy();
             throw new Error(`文件过大: ${(contentLength / 1024 / 1024 / 1024).toFixed(2)}GB > ${maxBytes / 1024 / 1024 / 1024}GB 限制，已丢弃`);
         }
