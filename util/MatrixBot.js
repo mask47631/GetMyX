@@ -219,7 +219,14 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
         
         // 使用 Buffer 上传（matrix-bot-sdk 的 uploadContent 对 Node.js stream 支持有问题）
         const mediaData = fs.readFileSync(mediaInfo.filePath);
-        const mxcUrl = await client.uploadContent(mediaData, mimeType, fileName);
+        let mxcUrl;
+        try {
+            mxcUrl = await client.uploadContent(mediaData, mimeType, fileName);
+        } catch (uploadError) {
+            // 标记错误来源为上传
+            uploadError._step = 'upload';
+            throw uploadError;
+        }
         // 立即释放 buffer 引用
         mediaData.fill(0);  
         console.log(`[上传] 上传完成，MXC URL: ${mxcUrl.substring(0, 30)}...`);
@@ -245,7 +252,14 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
         // console.log('content:', content);
 
         // 发送消息
-        const eventId = await client.sendMessage(roomId, content);
+        let eventId;
+        try {
+            eventId = await client.sendMessage(roomId, content);
+        } catch (sendError) {
+            // 标记错误来源为发送消息
+            sendError._step = 'sendMessage';
+            throw sendError;
+        }
         console.log(`媒体发送成功: ${eventId}`);
 
         // 如果是视频，发送视频时长和大小信息
@@ -266,8 +280,17 @@ export async function sendMedia(roomId, mediaInfo, caption = '') {
     } catch (error) {
         // 检查是否为限流错误 (M_LIMIT_EXCEEDED)
         if (error?.errcode === 'M_LIMIT_EXCEEDED' || error?.message?.includes('Too Many Requests')) {
-            const retryDelayMs = 3 * 60 * 1000; // 3分钟
-            console.error(`[限流] Matrix API 限流，等待 ${retryDelayMs / 1000} 秒后重试...`);
+            const errorStep = error._step ? `(${error._step})` : '';
+            
+            // 优先使用服务器返回的重试时间
+            let retryDelayMs = error?.retryAfterMs || error?.retry_after_ms;
+            if (!retryDelayMs) {
+                retryDelayMs = 3 * 60 * 1000; // 默认 3分钟
+            }
+            // 加上缓冲时间（多等 500ms 确保安全）
+            retryDelayMs += 500;
+            
+            console.error(`[限流] Matrix API 限流 ${errorStep}，等待 ${(retryDelayMs / 1000).toFixed(1)} 秒后重试...`);
             
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));
             console.log('[限流] 重试发送...');
